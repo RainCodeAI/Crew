@@ -17,6 +17,8 @@ import {
   hasBlockingErrors,
   recomputeConflictsForSchedule,
 } from "./lib/conflicts";
+import { findCrewDoubleBookings } from "./lib/conflicts.pure";
+import { badRequest, conflict } from "./lib/errors";
 import {
   assertSingleConfirmedSchedule,
   syncJobStatusFromSchedules,
@@ -138,10 +140,10 @@ export const retry = mutation({
     assertSameCompany(row, user.companyId);
 
     if (row!.status !== "pending") {
-      throw new Error("Only pending suggestions can be retried.");
+      badRequest("Only pending suggestions can be retried.");
     }
     if (row!.aiStatus !== "failed") {
-      throw new Error("Only failed AI runs can be retried.");
+      badRequest("Only failed AI runs can be retried.");
     }
 
     const recent = await ctx.db
@@ -195,14 +197,14 @@ export const approve = mutation({
     assertSameCompany(suggestion, user.companyId);
 
     if (suggestion!.status !== "pending") {
-      throw new Error("Suggestion is not pending review.");
+      badRequest("Suggestion is not pending review.");
     }
     if (suggestion!.aiStatus !== "completed") {
-      throw new Error("AI has not completed successfully yet.");
+      badRequest("AI has not completed successfully yet.");
     }
 
     if (args.scheduleIds !== undefined && args.scheduleIds.length === 0) {
-      throw new Error(
+      badRequest(
         "Select at least one assignment to approve, or use Approve all.",
       );
     }
@@ -221,7 +223,7 @@ export const approve = mutation({
       for (const id of args.scheduleIds) {
         const s = byId.get(id);
         if (!s || s.companyId !== user.companyId) {
-          throw new Error("One or more selected schedules are invalid.");
+          badRequest("One or more selected schedules are invalid.");
         }
       }
     }
@@ -233,12 +235,32 @@ export const approve = mutation({
       : schedules.filter((s) => s.status !== "cancelled");
 
     if (toConfirm.length === 0) {
-      throw new Error("No schedules available to confirm.");
+      badRequest("No schedules available to confirm.");
     }
 
     const company = await ctx.db.get(user.companyId);
     const strict = company?.strictConflictPolicy !== false;
     const override = args.ownerOverride === true;
+
+    // H3: proposed-vs-proposed crew overlaps are only "warning" severity (neither
+    // side is confirmed yet), so per-schedule conflict checks below would pass and
+    // confirming the whole batch could create overlapping *confirmed* schedules.
+    // Detect crew double-bookings among the batch itself and block them.
+    if (strict && !override) {
+      const doubles = findCrewDoubleBookings(
+        toConfirm.map((s) => ({
+          id: s._id,
+          startAt: s.startAt,
+          endAt: s.endAt,
+          crewMemberIds: s.crewMemberIds,
+        })),
+      );
+      if (doubles.length > 0) {
+        conflict(
+          "Selected assignments double-book the same crew member at overlapping times. Deselect one, edit the times/crew, or use owner override.",
+        );
+      }
+    }
 
     // Preflight: single-confirmed-job rule + conflicts (no writes until clean).
     for (const schedule of toConfirm) {
@@ -250,7 +272,7 @@ export const approve = mutation({
       );
       const findings = await recomputeConflictsForSchedule(ctx, schedule._id);
       if (strict && hasBlockingErrors(findings, override || schedule.ownerOverride)) {
-        throw new Error(
+        conflict(
           `Blocking conflicts on schedule for job ${schedule.jobId}. Fix them or use owner override.`,
         );
       }
@@ -306,7 +328,7 @@ export const reject = mutation({
     assertSameCompany(suggestion, user.companyId);
 
     if (suggestion!.status !== "pending") {
-      throw new Error("Suggestion is not pending review.");
+      badRequest("Suggestion is not pending review.");
     }
 
     const schedules = await ctx.db

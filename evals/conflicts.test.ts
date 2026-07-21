@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   evaluateConflictsPure,
+  findCrewDoubleBookings,
   hasBlockingErrorsPure,
 } from "../convex/lib/conflicts.pure";
 import { greedyPackSchedule } from "../convex/lib/scheduling";
@@ -98,6 +99,41 @@ describe("evaluateConflictsPure", () => {
       availability: [],
     });
     expect(hasBlockingErrorsPure(findings, true)).toBe(false);
+  });
+});
+
+describe("findCrewDoubleBookings", () => {
+  it("detects a crew member booked on two overlapping schedules", () => {
+    const doubles = findCrewDoubleBookings([
+      { id: "s1", startAt: 1_000, endAt: 3_000, crewMemberIds: ["c1", "c2"] },
+      { id: "s2", startAt: 2_000, endAt: 4_000, crewMemberIds: ["c2", "c3"] },
+    ]);
+    expect(doubles).toHaveLength(1);
+    expect(doubles[0]).toMatchObject({
+      scheduleAId: "s1",
+      scheduleBId: "s2",
+      crewMemberId: "c2",
+    });
+  });
+
+  it("ignores non-overlapping times and disjoint crews", () => {
+    expect(
+      findCrewDoubleBookings([
+        { id: "s1", startAt: 1_000, endAt: 2_000, crewMemberIds: ["c1"] },
+        // same crew, but abutting (no overlap)
+        { id: "s2", startAt: 2_000, endAt: 3_000, crewMemberIds: ["c1"] },
+        // overlaps s1 but different crew
+        { id: "s3", startAt: 1_500, endAt: 2_500, crewMemberIds: ["c9"] },
+      ]),
+    ).toHaveLength(0);
+  });
+
+  it("reports one entry per shared crew member across a pair", () => {
+    const doubles = findCrewDoubleBookings([
+      { id: "s1", startAt: 0, endAt: 10, crewMemberIds: ["c1", "c2"] },
+      { id: "s2", startAt: 5, endAt: 15, crewMemberIds: ["c1", "c2"] },
+    ]);
+    expect(doubles).toHaveLength(2);
   });
 });
 

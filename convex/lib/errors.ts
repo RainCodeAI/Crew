@@ -1,7 +1,13 @@
 /**
- * Lightweight structured errors for Convex functions.
- * Format: `CODE: human-readable message` so clients can parse without a custom protocol.
+ * Structured errors for Convex functions.
+ *
+ * Thrown as `ConvexError({ code, message })`. Unlike a plain `Error`, a
+ * `ConvexError`'s `data` payload is preserved on the client in production —
+ * Convex replaces plain error messages with a generic "Server Error" string.
+ * Clients read the code/message via `parseAppError` in `lib/app-error.ts`.
  */
+
+import { ConvexError } from "convex/values";
 
 export type AppErrorCode =
   | "AUTH"
@@ -11,8 +17,13 @@ export type AppErrorCode =
   | "CONFLICT"
   | "RATE_LIMIT";
 
+export type AppErrorData = {
+  code: AppErrorCode;
+  message: string;
+};
+
 export function appError(code: AppErrorCode, message: string): never {
-  throw new Error(`${code}: ${message}`);
+  throw new ConvexError<AppErrorData>({ code, message });
 }
 
 export function notFound(message = "Not found"): never {

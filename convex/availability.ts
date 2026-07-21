@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { assertSameCompany, requireCurrentUser } from "./lib/tenant";
+import { badRequest } from "./lib/errors";
 import { availabilityKindValidator } from "./schema";
 
 export const listForMember = query({
@@ -44,7 +45,7 @@ export const create = mutation({
     assertSameCompany(member, user.companyId);
 
     if (args.endAt <= args.startAt) {
-      throw new Error("endAt must be after startAt.");
+      badRequest("End must be after start.");
     }
 
     const now = Date.now();

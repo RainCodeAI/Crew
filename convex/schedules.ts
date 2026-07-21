@@ -16,6 +16,7 @@ import {
   syncJobStatusFromSchedules,
 } from "./lib/scheduleSync";
 import { optionalTrimmedMax, requireTimeRange, LIMITS } from "./lib/validation";
+import { badRequest, conflict } from "./lib/errors";
 
 /** Max lookback so long jobs that started before `from` still appear (M10). */
 const BOARD_START_PAD_MS = 30 * 24 * 60 * 60 * 1000;
@@ -300,7 +301,7 @@ export const create = mutation({
       strict &&
       hasBlockingErrors(findings, args.ownerOverride)
     ) {
-      throw new Error(
+      conflict(
         "Blocking conflicts found. Fix them or set ownerOverride to confirm (owners only).",
       );
     }
@@ -336,12 +337,12 @@ export const update = mutation({
     assertSameCompany(schedule, user.companyId);
 
     if (schedule!.status === "cancelled") {
-      throw new Error("Cannot update a cancelled schedule.");
+      badRequest("Cannot update a cancelled schedule.");
     }
 
     const startAt = args.startAt ?? schedule!.startAt;
     const endAt = args.endAt ?? schedule!.endAt;
-    if (endAt <= startAt) throw new Error("endAt must be after startAt.");
+    if (endAt <= startAt) badRequest("End must be after start.");
 
     if (args.crewMemberIds) {
       for (const crewId of args.crewMemberIds) {
@@ -366,7 +367,22 @@ export const update = mutation({
     }
 
     await ctx.db.patch(args.scheduleId, patch);
-    await recomputeConflictsForSchedule(ctx, args.scheduleId);
+    const findings = await recomputeConflictsForSchedule(ctx, args.scheduleId);
+
+    // H4: editing an already-confirmed schedule must not silently move it into
+    // a hard conflict (double-book, inactive crew, PTO). Members cannot pass
+    // ownerOverride (guarded above), so this also keeps them from bypassing it.
+    if (schedule!.status === "confirmed") {
+      const company = await ctx.db.get(user.companyId);
+      const strict = company?.strictConflictPolicy !== false;
+      const override = args.ownerOverride ?? schedule!.ownerOverride;
+      if (strict && hasBlockingErrors(findings, override)) {
+        conflict(
+          "This change would put a confirmed schedule into a blocking conflict. Adjust the time or crew, or use owner override.",
+        );
+      }
+    }
+
     return args.scheduleId;
   },
 });
@@ -384,7 +400,7 @@ export const confirm = mutation({
     assertSameCompany(schedule, user.companyId);
 
     if (schedule!.status === "cancelled") {
-      throw new Error("Cannot confirm a cancelled schedule.");
+      badRequest("Cannot confirm a cancelled schedule.");
     }
     if (schedule!.status === "confirmed") return args.scheduleId;
 
@@ -408,7 +424,7 @@ export const confirm = mutation({
     const override = args.ownerOverride || schedule!.ownerOverride;
 
     if (strict && hasBlockingErrors(findings, override)) {
-      throw new Error(
+      conflict(
         "Blocking conflicts found. Fix them or confirm with ownerOverride (owners only).",
       );
     }
@@ -451,7 +467,7 @@ export const dismissConflict = mutation({
     const row = await ctx.db.get(conflictId);
     assertSameCompany(row, user.companyId);
     if (row!.severity === "error") {
-      throw new Error(
+      badRequest(
         "Hard conflicts cannot be dismissed. Fix the schedule or use owner override on confirm.",
       );
     }

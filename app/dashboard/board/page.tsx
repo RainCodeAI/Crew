@@ -28,6 +28,7 @@ import {
   PRIORITY_MAP,
   SCHEDULE_STATUS_MAP,
 } from "@/lib/constants";
+import { errorText } from "@/lib/app-error";
 
 export default function BoardPage() {
   const range = useWeekRange();
@@ -71,7 +72,7 @@ export default function BoardPage() {
     try {
       await confirm({ scheduleId: id, ownerOverride: override || undefined });
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Confirm failed");
+      setActionError(errorText(err, "Confirm failed"));
     } finally {
       setBusyId(null);
     }
@@ -84,7 +85,7 @@ export default function BoardPage() {
       await cancel({ scheduleId: id });
       if (selectedScheduleId === id) setSelectedScheduleId(null);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Cancel failed");
+      setActionError(errorText(err, "Cancel failed"));
     } finally {
       setBusyId(null);
     }

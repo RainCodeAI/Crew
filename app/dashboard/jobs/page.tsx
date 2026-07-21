@@ -24,6 +24,7 @@ import {
 } from "@/lib/constants";
 import type { JobStatus, Priority, ServiceType, Skill } from "@/types";
 import { SkillPicker } from "@/components/forms/skill-picker";
+import { errorText } from "@/lib/app-error";
 
 export default function JobsPage() {
   const jobs = useQuery(api.jobs.list, {});
@@ -88,7 +89,7 @@ export default function JobsPage() {
       setSelectedSkills(["general_labor"]);
       setOpen(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create job");
+      setError(errorText(err, "Failed to create job"));
     } finally {
       setSaving(false);
     }

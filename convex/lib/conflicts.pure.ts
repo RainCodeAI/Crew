@@ -236,3 +236,41 @@ export function hasBlockingErrorsPure(
   if (ownerOverride) return false;
   return findings.some((f) => f.severity === "error");
 }
+
+export type CrewDoubleBooking = {
+  scheduleAId: string;
+  scheduleBId: string;
+  crewMemberId: string;
+};
+
+/**
+ * Find crew members double-booked *within a set of schedules being confirmed
+ * together*. Two proposed placements overlapping on the same crew member are
+ * only "warning" severity in {@link evaluateConflictsPure} (neither is confirmed
+ * yet), so confirming a whole AI/pack batch could otherwise create overlapping
+ * confirmed schedules. Callers treat any result here as a blocking conflict.
+ */
+export function findCrewDoubleBookings(
+  schedules: Array<{
+    id: string;
+    startAt: number;
+    endAt: number;
+    crewMemberIds: string[];
+  }>,
+): CrewDoubleBooking[] {
+  const out: CrewDoubleBooking[] = [];
+  for (let i = 0; i < schedules.length; i++) {
+    for (let j = i + 1; j < schedules.length; j++) {
+      const a = schedules[i];
+      const b = schedules[j];
+      if (!intervalsOverlap(a.startAt, a.endAt, b.startAt, b.endAt)) continue;
+      const bCrew = new Set(b.crewMemberIds);
+      for (const crewMemberId of a.crewMemberIds) {
+        if (bCrew.has(crewMemberId)) {
+          out.push({ scheduleAId: a.id, scheduleBId: b.id, crewMemberId });
+        }
+      }
+    }
+  }
+  return out;
+}

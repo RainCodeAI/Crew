@@ -20,6 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { Skill } from "@/types";
 import { fromDatetimeLocalValue } from "@/lib/date";
 import { SkillPicker } from "@/components/forms/skill-picker";
+import { errorText } from "@/lib/app-error";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -87,7 +88,7 @@ export default function CrewPage() {
       setSkills(["general_labor"]);
       setOpen(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add crew member");
+      setError(errorText(err, "Failed to add crew member"));
     } finally {
       setSaving(false);
     }
@@ -107,7 +108,7 @@ export default function CrewPage() {
       setPtoStart("");
       setPtoEnd("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add PTO");
+      setError(errorText(err, "Failed to add PTO"));
     }
   }
 

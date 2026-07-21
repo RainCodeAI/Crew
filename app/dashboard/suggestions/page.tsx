@@ -20,6 +20,7 @@ import {
   SUGGESTION_STATUSES,
 } from "@/lib/constants";
 import { useWeekRange } from "@/hooks/use-week-range";
+import { errorText } from "@/lib/app-error";
 
 export default function SuggestionsPage() {
   const suggestions = useQuery(api.suggestions.list, {});
@@ -50,7 +51,7 @@ export default function SuggestionsPage() {
         preserveConfirmed: true,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Suggestion failed");
+      setError(errorText(err, "Suggestion failed"));
     } finally {
       setBusy(false);
     }
@@ -69,7 +70,7 @@ export default function SuggestionsPage() {
         ...window,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Greedy pack failed");
+      setError(errorText(err, "Greedy pack failed"));
     } finally {
       setBusy(false);
     }
@@ -170,11 +171,7 @@ export default function SuggestionsPage() {
                         type="button"
                         onClick={() =>
                           void retry({ suggestionId: s._id }).catch((err) =>
-                            setError(
-                              err instanceof Error
-                                ? err.message
-                                : "Retry failed",
-                            ),
+                            setError(errorText(err, "Retry failed")),
                           )
                         }
                       >
