@@ -125,10 +125,13 @@ export function validateWeeklyHours(
 ): void {
   for (const b of blocks) {
     if (!Number.isInteger(b.day) || b.day < 0 || b.day > 6) {
-      throw new Error("Weekly hours day must be 0 (Sunday) through 6 (Saturday).");
+      appError(
+        "VALIDATION",
+        "Weekly hours day must be 0 (Sunday) through 6 (Saturday).",
+      );
     }
     if (!HHMM.test(b.start) || !HHMM.test(b.end)) {
-      throw new Error("Weekly hours must use HH:mm (24h) format.");
+      appError("VALIDATION", "Weekly hours must use HH:mm (24h) format.");
     }
   }
 }

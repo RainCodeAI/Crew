@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { assertSameCompany, requireCurrentUser } from "./lib/tenant";
+import { badRequest } from "./lib/errors";
 import {
   LIMITS,
   optionalTrimmedMax,
@@ -73,7 +74,7 @@ export const create = mutation({
       "Name",
     );
     if (!args.skills.length) {
-      throw new Error("At least one skill is required.");
+      badRequest("At least one skill is required.");
     }
     if (args.defaultWeeklyHours) {
       validateWeeklyHours(args.defaultWeeklyHours);
@@ -142,7 +143,7 @@ export const update = mutation({
       );
     }
     if (args.skills !== undefined) {
-      if (!args.skills.length) throw new Error("At least one skill is required.");
+      if (!args.skills.length) badRequest("At least one skill is required.");
       patch.skills = args.skills;
     }
     if (args.certifications !== undefined) {

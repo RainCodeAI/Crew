@@ -21,6 +21,7 @@ import {
   toDatetimeLocalValue,
 } from "@/lib/date";
 import { ConflictList, type ConflictRow } from "@/components/board/conflict-panel";
+import { errorText } from "@/lib/app-error";
 
 type Props = {
   open: boolean;
@@ -126,7 +127,7 @@ export function AssignDialog({ open, onOpenChange, jobId }: Props) {
       onOpenChange(false);
       setCrewIds([]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to assign");
+      setError(errorText(err, "Failed to assign"));
     } finally {
       setSaving(false);
     }

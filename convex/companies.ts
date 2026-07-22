@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireCurrentUser, requireOwner } from "./lib/tenant";
+import { notFound } from "./lib/errors";
 import { resolveTimeZone } from "./lib/timezone";
 import { LIMITS, optionalTrimmedMax, requireMaxLength } from "./lib/validation";
 import { serviceTypeValidator } from "./schema";
@@ -42,7 +43,7 @@ export const update = mutation({
   handler: async (ctx, args) => {
     const user = await requireOwner(ctx);
     const company = await ctx.db.get(user.companyId);
-    if (!company) throw new Error("Not found");
+    if (!company) notFound();
 
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
     if (args.name !== undefined) {

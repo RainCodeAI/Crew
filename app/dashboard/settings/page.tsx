@@ -16,6 +16,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { SERVICE_TYPES } from "@/lib/constants";
 import type { ServiceType } from "@/types";
+import { errorText } from "@/lib/app-error";
 
 export default function SettingsPage() {
   const me = useQuery(api.users.current, {});
@@ -69,7 +70,7 @@ export default function SettingsPage() {
       });
       setMessage("Saved.");
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Save failed");
+      setMessage(errorText(err, "Save failed"));
     } finally {
       setSaving(false);
     }
@@ -256,11 +257,7 @@ export default function SettingsPage() {
                     setInviteCode(code);
                     setMessage("Invite code updated.");
                   })
-                  .catch((err) =>
-                    setMessage(
-                      err instanceof Error ? err.message : "Invite failed",
-                    ),
-                  )
+                  .catch((err) => setMessage(errorText(err, "Invite failed")))
               }
             >
               {inviteCode ? "Rotate invite code" : "Generate invite code"}

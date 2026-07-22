@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { assertSameCompany, requireCurrentUser } from "./lib/tenant";
+import { badRequest } from "./lib/errors";
 import { assertJobStatusTransition } from "./lib/jobStatus";
 import {
   clampListLimit,
@@ -210,7 +211,7 @@ export const update = mutation({
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
     if (args.title !== undefined) {
       const title = args.title.trim();
-      if (!title) throw new Error("Title is required.");
+      if (!title) badRequest("Title is required.");
       patch.title = title;
     }
     if (args.customerName !== undefined) {
@@ -227,7 +228,7 @@ export const update = mutation({
     }
     if (args.estimatedDurationMinutes !== undefined) {
       if (args.estimatedDurationMinutes <= 0) {
-        throw new Error("Duration must be positive.");
+        badRequest("Duration must be positive.");
       }
       patch.estimatedDurationMinutes = args.estimatedDurationMinutes;
     }

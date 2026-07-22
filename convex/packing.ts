@@ -11,6 +11,7 @@ import {
   requireNonEmptyIds,
   requireTimeRange,
 } from "./lib/validation";
+import { badRequest } from "./lib/errors";
 
 const PACK_RATE_MAX = 30;
 const PACK_RATE_WINDOW_MS = 60 * 60 * 1000;
@@ -121,7 +122,7 @@ export const greedySuggest = mutation({
         : undefined;
 
     if (!packableJobs.length) {
-      throw new Error(
+      badRequest(
         "All selected jobs already have confirmed schedules in this window.",
       );
     }

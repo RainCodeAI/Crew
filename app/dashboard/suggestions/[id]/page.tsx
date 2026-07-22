@@ -24,6 +24,7 @@ import {
   SUGGESTION_AI_STATUSES,
   SUGGESTION_STATUSES,
 } from "@/lib/constants";
+import { errorText } from "@/lib/app-error";
 
 export default function SuggestionDetailPage() {
   const params = useParams();
@@ -76,7 +77,7 @@ export default function SuggestionDetailPage() {
           : undefined,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Approve failed");
+      setError(errorText(err, "Approve failed"));
     } finally {
       setBusy(false);
     }
@@ -325,9 +326,7 @@ export default function SuggestionDetailPage() {
                     disabled={busy}
                     onClick={() =>
                       void retry({ suggestionId }).catch((err) =>
-                        setError(
-                          err instanceof Error ? err.message : "Retry failed",
-                        ),
+                        setError(errorText(err, "Retry failed")),
                       )
                     }
                   >
@@ -340,9 +339,7 @@ export default function SuggestionDetailPage() {
                   disabled={busy}
                   onClick={() =>
                     void reject({ suggestionId }).catch((err) =>
-                      setError(
-                        err instanceof Error ? err.message : "Reject failed",
-                      ),
+                      setError(errorText(err, "Reject failed")),
                     )
                   }
                 >
