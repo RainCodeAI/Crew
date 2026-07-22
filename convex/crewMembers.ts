@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import type { Doc } from "./_generated/dataModel";
 import { assertSameCompany, requireCurrentUser } from "./lib/tenant";
 import { badRequest } from "./lib/errors";
 import {
@@ -21,6 +22,25 @@ const DEFAULT_WEEKLY_HOURS = [1, 2, 3, 4, 5].map((day) => ({
   end: "17:00",
 }));
 
+/**
+ * Hide pay + contact PII from non-owner callers (M9). Members need the roster,
+ * skills, and availability for the board, but not rates, notes, or contact info.
+ * Sensitive fields are already optional, so nulling them keeps the return type.
+ */
+function redactCrewForRole(
+  member: Doc<"crewMembers">,
+  isOwner: boolean,
+): Doc<"crewMembers"> {
+  if (isOwner) return member;
+  return {
+    ...member,
+    hourlyRate: undefined,
+    notes: undefined,
+    phone: undefined,
+    email: undefined,
+  };
+}
+
 /** List crew members for the caller's company. */
 export const list = query({
   args: {
@@ -28,6 +48,7 @@ export const list = query({
   },
   handler: async (ctx, args) => {
     const user = await requireCurrentUser(ctx);
+    const isOwner = user.role === "owner";
     const rows = args.activeOnly
       ? await ctx.db
           .query("crewMembers")
@@ -40,7 +61,9 @@ export const list = query({
           .withIndex("by_company", (q) => q.eq("companyId", user.companyId))
           .collect();
 
-    return rows.sort((a, b) => a.name.localeCompare(b.name));
+    return rows
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((m) => redactCrewForRole(m, isOwner));
   },
 });
 
@@ -49,7 +72,8 @@ export const get = query({
   handler: async (ctx, { memberId }) => {
     const user = await requireCurrentUser(ctx);
     const member = await ctx.db.get(memberId);
-    return assertSameCompany(member, user.companyId);
+    assertSameCompany(member, user.companyId);
+    return redactCrewForRole(member!, user.role === "owner");
   },
 });
 

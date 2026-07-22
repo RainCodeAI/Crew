@@ -22,6 +22,14 @@ export const LIMITS = {
   stringArrayItem: 500,
 } as const;
 
+/**
+ * Maximum span of a single time range (schedule, suggestion window, PTO block).
+ * Doubles as the conflict-detection lookback: because no schedule can be longer
+ * than this, an indexed `startAt` query going back this far is guaranteed to
+ * include every schedule that could still overlap the point of interest.
+ */
+export const MAX_TIME_RANGE_MS = 1000 * 60 * 60 * 24 * 31; // 31 days
+
 export function requireNonEmpty(value: string, label: string): string {
   const trimmed = value.trim();
   if (!trimmed) appError("VALIDATION", `${label} is required.`);
@@ -71,9 +79,27 @@ export function requireTimeRange(
   if (endAt <= startAt) {
     appError("VALIDATION", `${label}: end must be after start.`);
   }
-  const maxSpan = 1000 * 60 * 60 * 24 * 31; // 31 days
-  if (endAt - startAt > maxSpan) {
+  if (endAt - startAt > MAX_TIME_RANGE_MS) {
     appError("VALIDATION", `${label} cannot exceed 31 days.`);
+  }
+}
+
+/**
+ * When both bounds are present, require `endAt` strictly after `startAt`.
+ * For optional windows (e.g. a job's preferred date range) that have no span
+ * cap — unlike {@link requireTimeRange}, which also bounds the span.
+ */
+export function requireOrderedWindow(
+  startAt: number | undefined,
+  endAt: number | undefined,
+  label = "Window",
+): void {
+  if (startAt == null || endAt == null) return;
+  if (!Number.isFinite(startAt) || !Number.isFinite(endAt)) {
+    appError("VALIDATION", `${label} is invalid.`);
+  }
+  if (endAt <= startAt) {
+    appError("VALIDATION", `${label}: end must be after start.`);
   }
 }
 
@@ -118,6 +144,15 @@ export function assertUnderRateLimit(
 }
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** Validate a wall-clock "HH:mm" (24h) string, returning it trimmed. */
+export function requireHHMM(value: string, label: string): string {
+  const t = value.trim();
+  if (!HHMM.test(t)) {
+    appError("VALIDATION", `${label} must be in HH:mm (24h) format.`);
+  }
+  return t;
+}
 
 /** Validate weekly hours blocks (day 0–6, HH:mm). */
 export function validateWeeklyHours(
