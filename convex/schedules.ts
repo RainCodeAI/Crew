@@ -10,16 +10,22 @@ import {
   hasBlockingErrors,
   previewPlacementConflicts,
   recomputeConflictsForSchedule,
+  recomputeConflictsForWindow,
 } from "./lib/conflicts";
 import {
   assertSingleConfirmedSchedule,
   syncJobStatusFromSchedules,
 } from "./lib/scheduleSync";
-import { optionalTrimmedMax, requireTimeRange, LIMITS } from "./lib/validation";
+import {
+  optionalTrimmedMax,
+  requireTimeRange,
+  LIMITS,
+  MAX_TIME_RANGE_MS,
+} from "./lib/validation";
 import { badRequest, conflict } from "./lib/errors";
 
 /** Max lookback so long jobs that started before `from` still appear (M10). */
-const BOARD_START_PAD_MS = 30 * 24 * 60 * 60 * 1000;
+const BOARD_START_PAD_MS = MAX_TIME_RANGE_MS;
 
 /** Board payload for a date range — schedules, jobs, crew names, conflicts. */
 export const boardForRange = query({
@@ -211,13 +217,15 @@ export const previewConflicts = query({
     }
 
     const pad = 24 * 60 * 60 * 1000;
+    // Lower bound reaches back a full max-span so long multi-day schedules that
+    // started before this slot are still considered for overlap (M6).
     const otherSchedules = (
       await ctx.db
         .query("schedules")
         .withIndex("by_company_and_start", (q) =>
           q
             .eq("companyId", user.companyId)
-            .gte("startAt", args.startAt - pad)
+            .gte("startAt", args.startAt - MAX_TIME_RANGE_MS)
             .lt("startAt", args.endAt + pad),
         )
         .collect()
@@ -383,6 +391,16 @@ export const update = mutation({
       }
     }
 
+    // M5: a move can free crew at the old slot and load them at the new one, so
+    // refresh peers across the union of both windows.
+    await recomputeConflictsForWindow(
+      ctx,
+      user.companyId,
+      Math.min(schedule!.startAt, startAt),
+      Math.max(schedule!.endAt, endAt),
+      [args.scheduleId],
+    );
+
     return args.scheduleId;
   },
 });
@@ -454,6 +472,15 @@ export const cancel = mutation({
       updatedAt: Date.now(),
     });
     await recomputeConflictsForSchedule(ctx, scheduleId);
+    // M5: peers that were double-booked against this schedule must be refreshed
+    // now that it no longer occupies its slot.
+    await recomputeConflictsForWindow(
+      ctx,
+      user.companyId,
+      schedule!.startAt,
+      schedule!.endAt,
+      [scheduleId],
+    );
     await syncJobStatusFromSchedules(ctx, schedule!.jobId);
     return scheduleId;
   },

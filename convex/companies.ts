@@ -1,9 +1,14 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireCurrentUser, requireOwner } from "./lib/tenant";
-import { notFound } from "./lib/errors";
+import { appError, notFound } from "./lib/errors";
 import { resolveTimeZone } from "./lib/timezone";
-import { LIMITS, optionalTrimmedMax, requireMaxLength } from "./lib/validation";
+import {
+  LIMITS,
+  optionalTrimmedMax,
+  requireHHMM,
+  requireMaxLength,
+} from "./lib/validation";
 import { serviceTypeValidator } from "./schema";
 
 function randomInviteCode(): string {
@@ -68,10 +73,28 @@ export const update = mutation({
       );
     }
     if (args.defaultWorkdayStart !== undefined) {
-      patch.defaultWorkdayStart = args.defaultWorkdayStart;
+      patch.defaultWorkdayStart = requireHHMM(
+        args.defaultWorkdayStart,
+        "Workday start",
+      );
     }
     if (args.defaultWorkdayEnd !== undefined) {
-      patch.defaultWorkdayEnd = args.defaultWorkdayEnd;
+      patch.defaultWorkdayEnd = requireHHMM(
+        args.defaultWorkdayEnd,
+        "Workday end",
+      );
+    }
+    // If both bounds are being set (or one against the stored other), start < end.
+    {
+      const start =
+        (patch.defaultWorkdayStart as string | undefined) ??
+        company.defaultWorkdayStart;
+      const end =
+        (patch.defaultWorkdayEnd as string | undefined) ??
+        company.defaultWorkdayEnd;
+      if (start && end && start >= end) {
+        appError("VALIDATION", "Workday end must be after workday start.");
+      }
     }
     if (args.notificationEmail !== undefined) {
       patch.notificationEmail = optionalTrimmedMax(

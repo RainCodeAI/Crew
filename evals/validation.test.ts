@@ -4,9 +4,11 @@ import type { AppErrorData } from "../convex/lib/errors";
 import {
   assertUnderRateLimit,
   clampListLimit,
+  requireHHMM,
   requireJobBatchSize,
   requireMaxLength,
   requireNonEmpty,
+  requireOrderedWindow,
   requirePositiveDuration,
   requireTimeRange,
   validateWeeklyHours,
@@ -98,6 +100,32 @@ describe("validation helpers", () => {
   it("requireMaxLength", () => {
     expectAppError(() => requireMaxLength("abc", 2, "X"), "VALIDATION", /at most 2/);
     expect(requireMaxLength("ab", 2, "X")).toBe("ab");
+  });
+
+  it("requireOrderedWindow", () => {
+    // Both bounds absent or partial → no-op.
+    expect(() => requireOrderedWindow(undefined, undefined)).not.toThrow();
+    expect(() => requireOrderedWindow(100, undefined)).not.toThrow();
+    expect(() => requireOrderedWindow(undefined, 100)).not.toThrow();
+    expect(() => requireOrderedWindow(100, 200)).not.toThrow();
+    expectAppError(
+      () => requireOrderedWindow(200, 100, "Preferred window"),
+      "VALIDATION",
+      /end must be after start/,
+    );
+    expectAppError(
+      () => requireOrderedWindow(Number.NaN, 100),
+      "VALIDATION",
+      /invalid/,
+    );
+  });
+
+  it("requireHHMM", () => {
+    expect(requireHHMM(" 08:30 ", "Workday start")).toBe("08:30");
+    expect(requireHHMM("23:59", "X")).toBe("23:59");
+    expectAppError(() => requireHHMM("8:30", "X"), "VALIDATION", /HH:mm/);
+    expectAppError(() => requireHHMM("24:00", "X"), "VALIDATION", /HH:mm/);
+    expectAppError(() => requireHHMM("noon", "X"), "VALIDATION", /HH:mm/);
   });
 
   it("validateWeeklyHours", () => {

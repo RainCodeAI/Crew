@@ -16,6 +16,33 @@ import {
   type PureJob,
   type PureSchedule,
 } from "./conflicts.pure";
+import { MAX_TIME_RANGE_MS } from "./validation";
+
+/**
+ * Fetch company schedules whose interval can overlap `[startAt, endAt)`, using
+ * the `by_company_and_start` index rather than scanning the whole table.
+ *
+ * The lower bound reaches back {@link MAX_TIME_RANGE_MS} because a schedule can
+ * be up to that long: one that *started* before `startAt` but is still running
+ * would be missed by a naive `startAt >= startAt` query (M6/M8). Exact overlap
+ * is decided by the caller / pure evaluator.
+ */
+async function collectSchedulesInRange(
+  ctx: MutationCtx,
+  companyId: Id<"companies">,
+  startAt: number,
+  endAt: number,
+): Promise<Doc<"schedules">[]> {
+  return await ctx.db
+    .query("schedules")
+    .withIndex("by_company_and_start", (q) =>
+      q
+        .eq("companyId", companyId)
+        .gte("startAt", startAt - MAX_TIME_RANGE_MS)
+        .lt("startAt", endAt),
+    )
+    .collect();
+}
 
 export type ConflictFinding = {
   type: ConflictType;
@@ -129,17 +156,27 @@ export async function recomputeConflictsForSchedule(
     await Promise.all(schedule.crewMemberIds.map((id) => ctx.db.get(id)))
   ).filter((c): c is Doc<"crewMembers"> => c != null);
 
-  const companySchedules = await ctx.db
-    .query("schedules")
-    .withIndex("by_company", (q) => q.eq("companyId", schedule.companyId))
-    .collect();
-
-  const pad = 24 * 60 * 60 * 1000;
-  const otherSchedules = companySchedules.filter(
-    (s) =>
-      s.startAt < schedule.endAt + pad && s.endAt > schedule.startAt - pad,
+  const inRange = await collectSchedulesInRange(
+    ctx,
+    schedule.companyId,
+    schedule.startAt,
+    schedule.endAt,
   );
 
+  // The same-job "double_booked" check must see a job's other confirmed
+  // schedule even if it falls outside the overlap window, so pull those by job
+  // and merge (deduped) with the time-bounded overlap candidates.
+  const sameJob = await ctx.db
+    .query("schedules")
+    .withIndex("by_job", (q) => q.eq("jobId", schedule.jobId))
+    .collect();
+  const seen = new Set(inRange.map((s) => s._id as string));
+  const otherSchedules = [
+    ...inRange,
+    ...sameJob.filter((s) => !seen.has(s._id as string)),
+  ];
+
+  const pad = 24 * 60 * 60 * 1000;
   const availability = await ctx.db
     .query("availability")
     .withIndex("by_company", (q) => q.eq("companyId", schedule.companyId))
@@ -188,6 +225,38 @@ export async function recomputeConflictsForSchedule(
   }
 
   return findings;
+}
+
+/**
+ * Recompute conflicts for every non-cancelled schedule overlapping `[startAt,
+ * endAt)` for a company. Use after a schedule is cancelled, moved, or replaced:
+ * a peer's stored findings (e.g. "double-booked against schedule X") go stale
+ * when X changes, and are only refreshed when the peer itself is recomputed (M5).
+ *
+ * `exceptIds` skips schedules the caller has already recomputed directly.
+ */
+export async function recomputeConflictsForWindow(
+  ctx: MutationCtx,
+  companyId: Id<"companies">,
+  startAt: number,
+  endAt: number,
+  exceptIds: Id<"schedules">[] = [],
+): Promise<void> {
+  const skip = new Set<string>(exceptIds);
+  const candidates = await collectSchedulesInRange(
+    ctx,
+    companyId,
+    startAt,
+    endAt,
+  );
+  for (const s of candidates) {
+    if (skip.has(s._id)) continue;
+    if (s.status === "cancelled") continue;
+    // Exact overlap with the affected window.
+    if (s.startAt < endAt && s.endAt > startAt) {
+      await recomputeConflictsForSchedule(ctx, s._id);
+    }
+  }
 }
 
 /** True if any unresolved error-severity conflicts exist for the schedule. */

@@ -1,7 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { assertSameCompany, requireCurrentUser } from "./lib/tenant";
-import { badRequest } from "./lib/errors";
 import { assertJobStatusTransition } from "./lib/jobStatus";
 import {
   clampListLimit,
@@ -9,6 +8,7 @@ import {
   optionalTrimmedMax,
   requireMaxLength,
   requireNonEmpty,
+  requireOrderedWindow,
   requirePositiveDuration,
 } from "./lib/validation";
 import { resolveTimeZone, weekRangeMonday } from "./lib/timezone";
@@ -137,6 +137,11 @@ export const create = mutation({
       "Title",
     );
     requirePositiveDuration(args.estimatedDurationMinutes);
+    requireOrderedWindow(
+      args.preferredStartAt,
+      args.preferredEndAt,
+      "Preferred window",
+    );
 
     const now = Date.now();
     return await ctx.db.insert("jobs", {
@@ -210,27 +215,40 @@ export const update = mutation({
 
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
     if (args.title !== undefined) {
-      const title = args.title.trim();
-      if (!title) badRequest("Title is required.");
-      patch.title = title;
+      patch.title = requireMaxLength(
+        requireNonEmpty(args.title, "Title"),
+        LIMITS.title,
+        "Title",
+      );
     }
     if (args.customerName !== undefined) {
-      patch.customerName = args.customerName.trim() || undefined;
+      patch.customerName = optionalTrimmedMax(
+        args.customerName,
+        LIMITS.name,
+        "Customer name",
+      );
     }
-    if (args.phone !== undefined) patch.phone = args.phone.trim() || undefined;
-    if (args.email !== undefined) patch.email = args.email.trim() || undefined;
+    if (args.phone !== undefined) {
+      patch.phone = optionalTrimmedMax(args.phone, LIMITS.phone, "Phone");
+    }
+    if (args.email !== undefined) {
+      patch.email = optionalTrimmedMax(args.email, LIMITS.email, "Email");
+    }
     if (args.address !== undefined) {
-      patch.address = args.address.trim() || undefined;
+      patch.address = optionalTrimmedMax(args.address, LIMITS.address, "Address");
     }
     if (args.serviceType !== undefined) patch.serviceType = args.serviceType;
     if (args.description !== undefined) {
-      patch.description = args.description.trim() || undefined;
+      patch.description = optionalTrimmedMax(
+        args.description,
+        LIMITS.description,
+        "Description",
+      );
     }
     if (args.estimatedDurationMinutes !== undefined) {
-      if (args.estimatedDurationMinutes <= 0) {
-        badRequest("Duration must be positive.");
-      }
-      patch.estimatedDurationMinutes = args.estimatedDurationMinutes;
+      patch.estimatedDurationMinutes = requirePositiveDuration(
+        args.estimatedDurationMinutes,
+      );
     }
     if (args.requiredSkills !== undefined) {
       patch.requiredSkills = args.requiredSkills;
@@ -243,13 +261,25 @@ export const update = mutation({
       assertJobStatusTransition(job!.status, args.status);
       patch.status = args.status;
     }
+    // Validate the effective preferred window (new values fall back to stored).
+    requireOrderedWindow(
+      args.preferredStartAt !== undefined
+        ? args.preferredStartAt
+        : job!.preferredStartAt,
+      args.preferredEndAt !== undefined
+        ? args.preferredEndAt
+        : job!.preferredEndAt,
+      "Preferred window",
+    );
     if (args.preferredStartAt !== undefined) {
       patch.preferredStartAt = args.preferredStartAt;
     }
     if (args.preferredEndAt !== undefined) {
       patch.preferredEndAt = args.preferredEndAt;
     }
-    if (args.notes !== undefined) patch.notes = args.notes.trim() || undefined;
+    if (args.notes !== undefined) {
+      patch.notes = optionalTrimmedMax(args.notes, LIMITS.notes, "Notes");
+    }
 
     await ctx.db.patch(args.jobId, patch);
     return args.jobId;

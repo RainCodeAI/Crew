@@ -1,7 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { assertSameCompany, requireCurrentUser } from "./lib/tenant";
-import { badRequest } from "./lib/errors";
+import { LIMITS, optionalTrimmedMax, requireTimeRange } from "./lib/validation";
 import { availabilityKindValidator } from "./schema";
 
 export const listForMember = query({
@@ -44,9 +44,7 @@ export const create = mutation({
     const member = await ctx.db.get(args.crewMemberId);
     assertSameCompany(member, user.companyId);
 
-    if (args.endAt <= args.startAt) {
-      badRequest("End must be after start.");
-    }
+    requireTimeRange(args.startAt, args.endAt, "Availability");
 
     const now = Date.now();
     return await ctx.db.insert("availability", {
@@ -55,7 +53,7 @@ export const create = mutation({
       kind: args.kind,
       startAt: args.startAt,
       endAt: args.endAt,
-      reason: args.reason?.trim() || undefined,
+      reason: optionalTrimmedMax(args.reason, LIMITS.address, "Reason"),
       allDay: args.allDay,
       createdBy: user._id,
       createdAt: now,

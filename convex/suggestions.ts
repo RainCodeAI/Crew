@@ -16,6 +16,7 @@ import {
 import {
   hasBlockingErrors,
   recomputeConflictsForSchedule,
+  recomputeConflictsForWindow,
 } from "./lib/conflicts";
 import { findCrewDoubleBookings } from "./lib/conflicts.pure";
 import { badRequest, conflict } from "./lib/errors";
@@ -27,6 +28,7 @@ import {
   assertUnderRateLimit,
   clampListLimit,
   LIMITS,
+  MAX_TIME_RANGE_MS,
   optionalTrimmedMax,
   requireJobBatchSize,
   requireNonEmptyIds,
@@ -347,6 +349,14 @@ export const reject = mutation({
       await syncJobStatusFromSchedules(ctx, schedule.jobId);
     }
 
+    // M5: refresh peers whose conflicts referenced the now-cancelled proposals.
+    await recomputeConflictsForWindow(
+      ctx,
+      suggestion!.companyId,
+      suggestion!.windowStartAt,
+      suggestion!.windowEndAt,
+    );
+
     await ctx.db.patch(suggestionId, {
       status: "rejected",
       reviewedBy: user._id,
@@ -386,7 +396,7 @@ export const applyAiResult = internalMutation({
     const suggestion = await ctx.db.get(args.suggestionId);
     if (!suggestion) return;
 
-    // Clear prior draft schedules from this run
+    // Clear prior draft schedules from this run (e.g. on retry).
     const existing = await ctx.db
       .query("schedules")
       .withIndex("by_suggestion", (q) =>
@@ -399,8 +409,17 @@ export const applyAiResult = internalMutation({
           status: "cancelled",
           updatedAt: Date.now(),
         });
+        // M5: drop the cancelled draft's own conflict rows so they don't linger.
+        await recomputeConflictsForSchedule(ctx, s._id);
       }
     }
+    // M5: refresh peers before inserting fresh proposals below.
+    await recomputeConflictsForWindow(
+      ctx,
+      suggestion.companyId,
+      suggestion.windowStartAt,
+      suggestion.windowEndAt,
+    );
 
     const now = Date.now();
     const allowedJobs = new Set(suggestion.jobIds as Id<"jobs">[]);
@@ -485,12 +504,14 @@ export const getSnapshot = internalQuery({
       .withIndex("by_company", (q) => q.eq("companyId", suggestion.companyId))
       .collect();
 
+    // Lower bound reaches back a full max-span so long schedules that started
+    // before the window still count as "busy" for the AI (M6).
     const schedules = await ctx.db
       .query("schedules")
       .withIndex("by_company_and_start", (q) =>
         q
           .eq("companyId", suggestion.companyId)
-          .gte("startAt", suggestion.windowStartAt - 86400000)
+          .gte("startAt", suggestion.windowStartAt - MAX_TIME_RANGE_MS)
           .lt("startAt", suggestion.windowEndAt + 86400000),
       )
       .collect();

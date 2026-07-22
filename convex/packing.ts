@@ -7,6 +7,7 @@ import { recomputeConflictsForSchedule } from "./lib/conflicts";
 import { resolveTimeZone } from "./lib/timezone";
 import {
   assertUnderRateLimit,
+  MAX_TIME_RANGE_MS,
   requireJobBatchSize,
   requireNonEmptyIds,
   requireTimeRange,
@@ -68,7 +69,7 @@ export const greedySuggest = mutation({
       .withIndex("by_company_and_start", (q) =>
         q
           .eq("companyId", user.companyId)
-          .gte("startAt", args.windowStartAt - 86400000)
+          .gte("startAt", args.windowStartAt - MAX_TIME_RANGE_MS)
           .lt("startAt", args.windowEndAt + 86400000),
       )
       .collect();
