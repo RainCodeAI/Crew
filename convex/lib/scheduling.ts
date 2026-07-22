@@ -101,14 +101,45 @@ function crewFree(
   return true;
 }
 
-function skillsCovered(required: string[], crewSkills: string[]): boolean {
-  if (!required.length) return true;
-  const set = new Set(crewSkills);
-  return required.every((s) => set.has(s));
+/**
+ * Smallest deterministic set of members whose combined skills cover `required`.
+ * Greedy set cover: repeatedly take the member adding the most still-needed
+ * skills, ties broken by id for stable output. Returns `[]` if the given members
+ * cannot cover the requirement (caller keeps scanning). When `required` is empty
+ * a job still needs someone, so one member is returned.
+ */
+function pickMinimalCover(required: string[], members: PackCrew[]): PackCrew[] {
+  if (!members.length) return [];
+  if (!required.length) return [members[0]!];
+
+  const need = new Set(required);
+  const pool = [...members].sort((a, b) => a.id.localeCompare(b.id));
+  const team: PackCrew[] = [];
+
+  while (need.size) {
+    let best: PackCrew | null = null;
+    let bestCover = 0;
+    for (const m of pool) {
+      if (team.includes(m)) continue;
+      let cover = 0;
+      for (const s of m.skills) if (need.has(s)) cover++;
+      if (cover > bestCover) {
+        bestCover = cover;
+        best = m;
+      }
+    }
+    if (!best) break; // no remaining member covers an outstanding skill
+    team.push(best);
+    for (const s of best.skills) need.delete(s);
+  }
+
+  return need.size ? [] : team;
 }
 
 /**
- * Greedy pack: sort by priority, place earliest feasible slot with a skilled crew.
+ * Greedy pack: sort by priority, then place each job in the earliest slot where
+ * a qualified crew is all simultaneously free. A job whose required skills no
+ * single person holds can be staffed by a multi-person crew (union of skills).
  * Slot step = 30 minutes. Times interpreted in `timeZone`.
  */
 export function greedyPackSchedule(args: {
@@ -163,25 +194,21 @@ export function greedyPackSchedule(args: {
       continue;
     }
 
-    // NOTE: the greedy packer assigns a *single* crew member per job, so it can
-    // only place jobs one person fully covers. The conflict evaluator, by
-    // contrast, accepts a manually-assigned multi-person crew (union of skills).
-    // Multi-crew auto-packing is a future enhancement; until then such jobs are
-    // reported as unscheduled with a reason that tells the owner to assign
-    // manually rather than implying nobody is qualified.
-    const skilled = activeCrew.filter((c) =>
-      skillsCovered(job.requiredSkills, c.skills),
-    );
-    if (!skilled.length) {
-      const unionSkills = new Set(activeCrew.flatMap((c) => c.skills));
-      const coverableByTeam = job.requiredSkills.every((s) =>
-        unionSkills.has(s),
-      );
+    // Crew who could contribute at least one required skill (all active crew for
+    // a job with no listed skills). A job is packable when their *combined*
+    // skills cover the requirement; the packer may staff a multi-person crew.
+    const relevantCrew = job.requiredSkills.length
+      ? activeCrew.filter((c) =>
+          c.skills.some((s) => job.requiredSkills.includes(s)),
+        )
+      : activeCrew;
+
+    const unionSkills = new Set(relevantCrew.flatMap((c) => c.skills));
+    const coverable = job.requiredSkills.every((s) => unionSkills.has(s));
+    if (!relevantCrew.length || !coverable) {
       unscheduled.push({
         jobId: job.id,
-        reason: coverableByTeam
-          ? "No single crew member has all required skills — assign a multi-person crew manually"
-          : "No active crew covers required skills",
+        reason: "No active crew covers required skills",
       });
       continue;
     }
@@ -191,27 +218,56 @@ export function greedyPackSchedule(args: {
 
     outer: for (const dayMs of days) {
       const dow = getZonedParts(dayMs, timeZone).weekday;
-      for (const member of skilled) {
+
+      // Each relevant member's working bounds (UTC ms) for this day.
+      const working = relevantCrew.flatMap((member) => {
         const hours = defaultHoursForDay(member, dow);
-        if (!hours) continue;
+        if (!hours) return [];
+        return [
+          {
+            member,
+            start: atZonedTime(dayMs, hours.start, timeZone),
+            end: atZonedTime(dayMs, hours.end, timeZone),
+          },
+        ];
+      });
+      if (!working.length) continue;
 
-        let slot = Math.max(winStart, atZonedTime(dayMs, hours.start, timeZone));
-        const dayEnd = Math.min(winEnd, atZonedTime(dayMs, hours.end, timeZone));
+      const gridStart = Math.max(
+        winStart,
+        Math.min(...working.map((w) => w.start)),
+      );
+      const gridEnd = Math.min(winEnd, Math.max(...working.map((w) => w.end)));
 
-        while (slot + durationMs <= dayEnd) {
-          const endAt = slot + durationMs;
-          if (crewFree(member.id, slot, endAt, workingBusy, unavailable)) {
-            placed = {
-              jobId: job.id,
-              startAt: slot,
-              endAt,
-              crewMemberIds: [member.id],
-              rationale: `Greedy pack: ${member.name} earliest free slot (${job.priority})`,
-            };
-            break outer;
-          }
-          slot += slotStepMinutes * 60 * 1000;
+      let slot = gridStart;
+      while (slot + durationMs <= gridEnd) {
+        const endAt = slot + durationMs;
+        // Members whose own hours cover this slot and who are free right now.
+        const availableNow = working
+          .filter(
+            (w) =>
+              w.start <= slot &&
+              endAt <= w.end &&
+              crewFree(w.member.id, slot, endAt, workingBusy, unavailable),
+          )
+          .map((w) => w.member);
+
+        const team = pickMinimalCover(job.requiredSkills, availableNow);
+        if (team.length) {
+          const names = team.map((m) => m.name).join(" + ");
+          placed = {
+            jobId: job.id,
+            startAt: slot,
+            endAt,
+            crewMemberIds: team.map((m) => m.id),
+            rationale:
+              team.length === 1
+                ? `Greedy pack: ${names} earliest free slot (${job.priority})`
+                : `Greedy pack: ${names} together cover the required skills (${job.priority})`,
+          };
+          break outer;
         }
+        slot += slotStepMinutes * 60 * 1000;
       }
     }
 
@@ -227,7 +283,7 @@ export function greedyPackSchedule(args: {
     } else {
       unscheduled.push({
         jobId: job.id,
-        reason: "No free skilled crew slot in window",
+        reason: "No time slot where a qualified crew is all available",
       });
     }
   }

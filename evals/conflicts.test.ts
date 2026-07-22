@@ -204,7 +204,7 @@ describe("greedyPackSchedule", () => {
     expect(result.unscheduled[0]?.reason).toMatch(/no active crew covers/i);
   });
 
-  it("flags multi-skill jobs the crew union could cover as needing manual assign", () => {
+  it("staffs a multi-person crew when no single member has all skills", () => {
     const monday = Date.UTC(2026, 6, 13, 0, 0, 0);
     const result = greedyPackSchedule({
       timeZone: "UTC",
@@ -225,7 +225,104 @@ describe("greedyPackSchedule", () => {
       windowStartAt: monday,
       windowEndAt: Date.UTC(2026, 6, 20, 0, 0, 0),
     });
+    expect(result.assignments).toHaveLength(1);
+    expect([...result.assignments[0].crewMemberIds].sort()).toEqual([
+      "c1",
+      "c2",
+    ]);
+    expect(result.unscheduled).toHaveLength(0);
+  });
+
+  it("picks the minimal covering crew, not everyone qualified", () => {
+    const monday = Date.UTC(2026, 6, 13, 0, 0, 0);
+    const result = greedyPackSchedule({
+      timeZone: "UTC",
+      jobs: [
+        {
+          id: "j1",
+          title: "Two-skill job",
+          durationMinutes: 60,
+          requiredSkills: ["hvac_install", "hvac_service"],
+          priority: "high",
+        },
+      ],
+      crew: [
+        // c1 alone covers both required skills → team of one.
+        {
+          id: "c1",
+          name: "Pat",
+          skills: ["hvac_install", "hvac_service"],
+          isActive: true,
+        },
+        { id: "c2", name: "Lee", skills: ["hvac_service"], isActive: true },
+      ],
+      windowStartAt: monday,
+      windowEndAt: Date.UTC(2026, 6, 20, 0, 0, 0),
+    });
+    expect(result.assignments).toHaveLength(1);
+    expect(result.assignments[0].crewMemberIds).toEqual(["c1"]);
+  });
+
+  it("leaves a multi-skill job unscheduled when the crew union cannot cover it", () => {
+    const monday = Date.UTC(2026, 6, 13, 0, 0, 0);
+    const result = greedyPackSchedule({
+      timeZone: "UTC",
+      jobs: [
+        {
+          id: "j1",
+          title: "Needs three skills",
+          durationMinutes: 60,
+          requiredSkills: ["plumbing_rough", "plumbing_finish", "electrical_rough"],
+          priority: "medium",
+        },
+      ],
+      crew: [
+        { id: "c1", name: "Alex", skills: ["plumbing_rough"], isActive: true },
+        { id: "c2", name: "Sam", skills: ["plumbing_finish"], isActive: true },
+      ],
+      windowStartAt: monday,
+      windowEndAt: Date.UTC(2026, 6, 20, 0, 0, 0),
+    });
     expect(result.assignments).toHaveLength(0);
-    expect(result.unscheduled[0]?.reason).toMatch(/multi-person crew/i);
+    expect(result.unscheduled[0]?.reason).toMatch(/no active crew covers/i);
+  });
+
+  it("does not co-schedule a crew member who is busy at the only shared slot", () => {
+    // Both needed, but c2 is busy Monday, so the team lands Tuesday instead.
+    const monday = Date.UTC(2026, 6, 13, 0, 0, 0);
+    const tuesday = Date.UTC(2026, 6, 14, 0, 0, 0);
+    const result = greedyPackSchedule({
+      timeZone: "UTC",
+      jobs: [
+        {
+          id: "j1",
+          title: "Rough + finish",
+          durationMinutes: 120,
+          requiredSkills: ["plumbing_rough", "plumbing_finish"],
+          priority: "high",
+        },
+      ],
+      crew: [
+        { id: "c1", name: "Alex", skills: ["plumbing_rough"], isActive: true },
+        { id: "c2", name: "Sam", skills: ["plumbing_finish"], isActive: true },
+      ],
+      windowStartAt: monday,
+      windowEndAt: Date.UTC(2026, 6, 18, 0, 0, 0),
+      busy: [
+        // c2 booked all Monday working hours.
+        {
+          crewMemberId: "c2",
+          startAt: Date.UTC(2026, 6, 13, 8, 0, 0),
+          endAt: Date.UTC(2026, 6, 13, 17, 0, 0),
+        },
+      ],
+    });
+    expect(result.assignments).toHaveLength(1);
+    expect([...result.assignments[0].crewMemberIds].sort()).toEqual([
+      "c1",
+      "c2",
+    ]);
+    // Placed on Tuesday, not Monday.
+    expect(result.assignments[0].startAt).toBeGreaterThanOrEqual(tuesday);
   });
 });
