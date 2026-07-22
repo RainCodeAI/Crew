@@ -37,6 +37,18 @@ export function resolveTimeZone(tz?: string | null): string {
   }
 }
 
+/** True if `tz` is a valid IANA time zone. Blank is not valid (caller decides). */
+export function isValidTimeZone(tz: string): boolean {
+  const t = tz.trim();
+  if (!t) return false;
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: t });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Calendar parts of an instant in a given IANA timezone. */
 export function getZonedParts(ms: number, timeZone: string): ZonedParts {
   const tz = resolveTimeZone(timeZone);

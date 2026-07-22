@@ -43,6 +43,14 @@ import {
 const SUGGESTION_RATE_MAX = 20;
 const SUGGESTION_RATE_WINDOW_MS = 60 * 60 * 1000;
 
+/**
+ * Max AI generation attempts per suggestion run (initial run + retries).
+ * `aiGenerationAttempts` increments on every processing pass, so this caps how
+ * many OpenAI calls one suggestion can burn regardless of the hourly limiter,
+ * which retries would otherwise bypass (they create no new run rows).
+ */
+const MAX_AI_ATTEMPTS = 5;
+
 export const list = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
@@ -146,6 +154,11 @@ export const retry = mutation({
     }
     if (row!.aiStatus !== "failed") {
       badRequest("Only failed AI runs can be retried.");
+    }
+    if ((row!.aiGenerationAttempts ?? 0) >= MAX_AI_ATTEMPTS) {
+      badRequest(
+        "This suggestion has reached the maximum number of AI attempts. Start a new suggestion run.",
+      );
     }
 
     const recent = await ctx.db

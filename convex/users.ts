@@ -9,6 +9,13 @@ import { LIMITS, optionalTrimmedMax, requireMaxLength } from "./lib/validation";
  * Clerk owns authentication; Convex owns user/company rows.
  */
 
+/**
+ * How long an invite code stays valid after it is generated/rotated (L15).
+ * A leaked or forgotten code stops working after this window; owners refresh
+ * via `companies.rotateInviteCode`.
+ */
+const INVITE_CODE_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
+
 /** The signed-in user joined with their company. `null` until provisioned. */
 export const current = query({
   args: {},
@@ -110,6 +117,13 @@ export const store = mutation({
         .unique();
       if (!company) {
         appError("VALIDATION", "Invalid invite code.");
+      }
+      const rotatedAt = company!.inviteCodeRotatedAt;
+      if (!rotatedAt || now - rotatedAt > INVITE_CODE_TTL_MS) {
+        appError(
+          "VALIDATION",
+          "This invite code has expired. Ask a workspace owner for a new one.",
+        );
       }
       return await ctx.db.insert("users", {
         clerkUserId: identity!.subject,
