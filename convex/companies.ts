@@ -2,7 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { requireCurrentUser, requireOwner } from "./lib/tenant";
 import { appError, notFound } from "./lib/errors";
-import { resolveTimeZone } from "./lib/timezone";
+import { isValidTimeZone, resolveTimeZone } from "./lib/timezone";
 import {
   LIMITS,
   optionalTrimmedMax,
@@ -63,7 +63,14 @@ export const update = mutation({
       patch.email = optionalTrimmedMax(args.email, LIMITS.email, "Email");
     }
     if (args.timezone !== undefined) {
-      patch.timezone = resolveTimeZone(args.timezone);
+      const tz = args.timezone.trim();
+      if (tz && !isValidTimeZone(tz)) {
+        appError(
+          "VALIDATION",
+          `"${args.timezone}" is not a valid IANA time zone (e.g. America/Denver).`,
+        );
+      }
+      patch.timezone = resolveTimeZone(tz);
     }
     if (args.originZip !== undefined) {
       patch.originZip = optionalTrimmedMax(

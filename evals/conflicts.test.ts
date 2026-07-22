@@ -201,6 +201,31 @@ describe("greedyPackSchedule", () => {
       windowEndAt: Date.UTC(2026, 6, 20, 0, 0, 0),
     });
     expect(result.assignments).toHaveLength(0);
-    expect(result.unscheduled[0]?.reason).toMatch(/skills/i);
+    expect(result.unscheduled[0]?.reason).toMatch(/no active crew covers/i);
+  });
+
+  it("flags multi-skill jobs the crew union could cover as needing manual assign", () => {
+    const monday = Date.UTC(2026, 6, 13, 0, 0, 0);
+    const result = greedyPackSchedule({
+      timeZone: "UTC",
+      jobs: [
+        {
+          id: "j1",
+          title: "Rough + finish",
+          durationMinutes: 60,
+          // No single member has both; together the crew does.
+          requiredSkills: ["plumbing_rough", "plumbing_finish"],
+          priority: "medium",
+        },
+      ],
+      crew: [
+        { id: "c1", name: "Alex", skills: ["plumbing_rough"], isActive: true },
+        { id: "c2", name: "Sam", skills: ["plumbing_finish"], isActive: true },
+      ],
+      windowStartAt: monday,
+      windowEndAt: Date.UTC(2026, 6, 20, 0, 0, 0),
+    });
+    expect(result.assignments).toHaveLength(0);
+    expect(result.unscheduled[0]?.reason).toMatch(/multi-person crew/i);
   });
 });

@@ -163,13 +163,25 @@ export function greedyPackSchedule(args: {
       continue;
     }
 
+    // NOTE: the greedy packer assigns a *single* crew member per job, so it can
+    // only place jobs one person fully covers. The conflict evaluator, by
+    // contrast, accepts a manually-assigned multi-person crew (union of skills).
+    // Multi-crew auto-packing is a future enhancement; until then such jobs are
+    // reported as unscheduled with a reason that tells the owner to assign
+    // manually rather than implying nobody is qualified.
     const skilled = activeCrew.filter((c) =>
       skillsCovered(job.requiredSkills, c.skills),
     );
     if (!skilled.length) {
+      const unionSkills = new Set(activeCrew.flatMap((c) => c.skills));
+      const coverableByTeam = job.requiredSkills.every((s) =>
+        unionSkills.has(s),
+      );
       unscheduled.push({
         jobId: job.id,
-        reason: "No active crew covers required skills",
+        reason: coverableByTeam
+          ? "No single crew member has all required skills — assign a multi-person crew manually"
+          : "No active crew covers required skills",
       });
       continue;
     }

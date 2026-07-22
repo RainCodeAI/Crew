@@ -88,6 +88,7 @@ export const list = query({
         .withIndex("by_company_and_status", (q) =>
           q.eq("companyId", user.companyId).eq("status", args.status!),
         )
+        .order("desc")
         .take(limit);
     }
     return await ctx.db
